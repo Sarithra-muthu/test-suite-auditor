@@ -114,13 +114,15 @@ def build_rtm(requirement_text: str, test_cases_text: str, test_findings: list[F
                     "confirmed test-case issues from a prior audit — treat these as established "
                     "facts, do not re-judge them. For EVERY distinct rule in the requirement, "
                     "create one RTMEntry: requirement_rule is the rule's ID plus a short "
-                    "paraphrase, test_ids lists every test_id that exercises that rule (empty "
-                    "list if none), and coverage_status is 'complete' if fully and correctly "
-                    "tested, 'partial' if only some cases are covered, 'missing' if no test "
-                    "covers it, or 'blocked_by_clarification' if the rule is too ambiguous to "
-                    "test. A test listed in the known issues as wrong_expected_result or "
-                    "unsupported_assumption does NOT count as valid coverage for that rule — "
-                    "that rule stays 'partial' or 'missing' even if the test exists."
+                    "paraphrase. test_ids must list EVERY test_id that attempts to address this "
+                    "rule, even if that test is wrong, a duplicate, or based on an unsupported "
+                    "assumption — a defective test is still a link, not an absence of one. "
+                    "coverage_status judges whether the rule is ADEQUATELY proven, separately "
+                    "from whether a test merely exists: 'complete' only if at least one linked "
+                    "test is correct and not flagged as an issue; 'partial' if tests are linked "
+                    "but are defective, duplicate, or only partially address the rule; 'missing' "
+                    "if truly no test attempts this rule at all; 'blocked_by_clarification' if "
+                    "the rule itself is too ambiguous to test until clarified."
                 ),
             },
             {

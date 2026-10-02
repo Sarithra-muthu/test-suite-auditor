@@ -48,5 +48,7 @@ def load_packages(file) -> list[dict]:
             "name": f"{package_id} — {title}",
             "requirement_text": requirement_text,
             "test_cases_text": "\n".join(test_lines),
+            "n_requirements": len(reqs),
+            "n_tests": len(tests),
         })
     return packages

@@ -32,19 +32,21 @@ def init_db():
         source_quote TEXT NOT NULL,
         explanation TEXT NOT NULL,
         priority TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT 'ai',
         status TEXT NOT NULL DEFAULT 'pending',
         reference_valid INTEGER NOT NULL DEFAULT 1,
         validation_problems TEXT NOT NULL DEFAULT '[]',
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
-    CREATE TABLE IF NOT EXISTS clarification_questions (
+        CREATE TABLE IF NOT EXISTS clarification_questions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         package_id INTEGER NOT NULL REFERENCES packages(id),
         question TEXT NOT NULL,
         requirement_ref TEXT NOT NULL,
         answer TEXT,
         status TEXT NOT NULL DEFAULT 'unanswered',
+        source TEXT NOT NULL DEFAULT 'ai',
         reference_valid INTEGER NOT NULL DEFAULT 1,
         validation_problems TEXT NOT NULL DEFAULT '[]'
     );
@@ -56,6 +58,15 @@ def init_db():
         test_ids TEXT NOT NULL,
         coverage_status TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS review_decisions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        finding_id INTEGER NOT NULL REFERENCES findings(id),
+        decision TEXT NOT NULL,
+        final_text TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
     """)
     conn.commit()
     conn.close()
