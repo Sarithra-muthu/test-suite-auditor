@@ -3,7 +3,7 @@ now including each one's reference-validation result."""
 
 import json
 from app.db import get_connection
-from app.models import RequirementAnalysisResult, TestAuditResult
+from app.models import RequirementAnalysisResult, TestAuditResult, RTMResult
 from app.validation import validate_finding, validate_clarification_question
 
 
@@ -64,11 +64,13 @@ def load_package_review(package_id: int) -> dict:
     questions = conn.execute(
         "SELECT * FROM clarification_questions WHERE package_id = ?", (package_id,)
     ).fetchall()
+    rtm_entries = conn.execute("SELECT * FROM rtm_entries WHERE package_id = ?", (package_id,)).fetchall()
     conn.close()
     return {
         "package": dict(package) if package else None,
         "findings": [dict(f) for f in findings],
         "questions": [dict(q) for q in questions],
+        "rtm_entries": [dict(r) for r in rtm_entries],
     }
 
 
@@ -77,3 +79,14 @@ def list_packages() -> list[dict]:
     rows = conn.execute("SELECT id, name, created_at FROM packages ORDER BY created_at DESC").fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+def save_rtm(package_id: int, result: RTMResult) -> None:
+    conn = get_connection()
+    for entry in result.entries:
+        conn.execute(
+            "INSERT INTO rtm_entries (package_id, requirement_rule, test_ids, coverage_status) "
+            "VALUES (?, ?, ?, ?)",
+            (package_id, entry.requirement_rule, json.dumps(entry.test_ids), entry.coverage_status),
+        )
+    conn.commit()
+    conn.close()

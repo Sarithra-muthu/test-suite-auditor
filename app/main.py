@@ -3,9 +3,9 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-from app.engine import analyse_requirements, audit_test_cases
+from app.engine import analyse_requirements, audit_test_cases, build_rtm
 from app.storage import (
-    save_package, save_requirement_analysis, save_test_audit,
+    save_package, save_requirement_analysis, save_test_audit, save_rtm,
     load_package_review, list_packages,
 )
 
@@ -25,9 +25,14 @@ def audit_package(req: AuditRequest):
     req_result = analyse_requirements(req.requirement_text)
     save_requirement_analysis(package_id, req_result, req.requirement_text, req.test_cases_text)
 
+    test_findings = []
     if req.test_cases_text.strip():
         test_result = audit_test_cases(req.requirement_text, req.test_cases_text)
         save_test_audit(package_id, test_result, req.requirement_text, req.test_cases_text)
+        test_findings = test_result.findings
+
+        rtm_result = build_rtm(req.requirement_text, req.test_cases_text, test_findings)
+        save_rtm(package_id, rtm_result)
 
     return load_package_review(package_id)
 

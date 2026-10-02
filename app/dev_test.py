@@ -21,3 +21,8 @@ TC04 | Basket £150, discount applied | Expected: Discount should be £15"""
 
 test_result = audit_test_cases(DISCOUNT_REQUIREMENT, DISCOUNT_TESTS)
 print(test_result.model_dump_json(indent=2))
+
+from app.engine import build_rtm
+
+rtm_result = build_rtm(DISCOUNT_REQUIREMENT, DISCOUNT_TESTS, test_result.findings)
+print(rtm_result.model_dump_json(indent=2))

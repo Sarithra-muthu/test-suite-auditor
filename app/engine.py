@@ -1,12 +1,10 @@
-"""LLM engine — the three audit stages. Stage 1 built now; the other two follow
-once this is proven to work end to end."""
+"""LLM engine — the three audit stages, all built and wired together."""
 
 import os
 from dotenv import load_dotenv
 from groq import Groq
 
-from app.models import RequirementAnalysisResult
-from app.models import RequirementAnalysisResult, TestAuditResult
+from app.models import RequirementAnalysisResult, TestAuditResult, RTMResult, Finding
 
 load_dotenv()  # reads GROQ_API_KEY out of .env into the environment
 
@@ -47,6 +45,7 @@ def analyse_requirements(requirement_text: str) -> RequirementAnalysisResult:
     raw = response.choices[0].message.content
     return RequirementAnalysisResult.model_validate_json(raw)
 
+
 def audit_test_cases(requirement_text: str, test_cases_text: str) -> TestAuditResult:
     """Check each test case against the requirement it belongs to."""
     schema = TestAuditResult.model_json_schema()
@@ -86,3 +85,59 @@ def audit_test_cases(requirement_text: str, test_cases_text: str) -> TestAuditRe
 
     raw = response.choices[0].message.content
     return TestAuditResult.model_validate_json(raw)
+
+
+def build_rtm(requirement_text: str, test_cases_text: str, test_findings: list[Finding]) -> RTMResult:
+    """Map every requirement rule to the tests that cover it.
+
+    test_findings comes from audit_test_cases() — a test already flagged
+    wrong_expected_result there is treated as a known fact here, not
+    re-judged, so RTM and the test audit can never disagree on the same test.
+    """
+    schema = RTMResult.model_json_schema()
+
+    known_issues = "\n".join(
+        f"- {f.test_id}: {f.category} — {f.explanation}"
+        for f in test_findings
+        if f.test_id
+    ) or "(none)"
+
+    response = _client.chat.completions.create(
+        model=MODEL,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are a meticulous QA reviewer building a Requirements Traceability "
+                    "Matrix. You are given a requirement (with numbered/labelled rules), its "
+                    "test cases ('test_id | scenario | expected'), and a list of already-"
+                    "confirmed test-case issues from a prior audit — treat these as established "
+                    "facts, do not re-judge them. For EVERY distinct rule in the requirement, "
+                    "create one RTMEntry: requirement_rule is the rule's ID plus a short "
+                    "paraphrase, test_ids lists every test_id that exercises that rule (empty "
+                    "list if none), and coverage_status is 'complete' if fully and correctly "
+                    "tested, 'partial' if only some cases are covered, 'missing' if no test "
+                    "covers it, or 'blocked_by_clarification' if the rule is too ambiguous to "
+                    "test. A test listed in the known issues as wrong_expected_result or "
+                    "unsupported_assumption does NOT count as valid coverage for that rule — "
+                    "that rule stays 'partial' or 'missing' even if the test exists."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Requirement:\n{requirement_text}\n\n"
+                    f"Test cases:\n{test_cases_text}\n\n"
+                    f"Known test-case issues (already confirmed, do not re-judge):\n{known_issues}"
+                ),
+            },
+        ],
+        response_format={
+            "type": "json_schema",
+            "json_schema": {"name": "rtm_result", "strict": True, "schema": schema},
+        },
+        temperature=0.2,
+    )
+
+    raw = response.choices[0].message.content
+    return RTMResult.model_validate_json(raw)

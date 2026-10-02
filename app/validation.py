@@ -74,8 +74,8 @@ def validate_finding(finding: Finding, requirement_text: str, test_cases_text: s
             if finding.test_id not in valid_ids:
                 problems.append(f"cites test_id '{finding.test_id}' which doesn't exist in the input")
 
-    source_text = requirement_text if finding.level == "requirement" else test_cases_text
-    if finding.source_quote.strip() and finding.source_quote.strip() not in source_text:
+    combined_source = requirement_text + "\n" + test_cases_text
+    if finding.source_quote.strip() and finding.source_quote.strip() not in combined_source:
         problems.append("source_quote is not a verbatim match found in the source text")
 
     return ValidationOutcome(reference_valid=not problems, problems=problems)
