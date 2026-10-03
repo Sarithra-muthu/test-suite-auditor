@@ -1,30 +1,34 @@
-"""SQLite connection + schema setup."""
+"""Postgres (Supabase) connection + schema setup."""
 
-import sqlite3
-from pathlib import Path
+import os
+import psycopg2
+import psycopg2.extras
+from dotenv import load_dotenv
 
-DB_PATH = Path(__file__).parent.parent / "data" / "auditor.db"
+load_dotenv()
+
+DATABASE_URL = os.environ["DATABASE_URL"]
 
 
 def get_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row  # lets us access columns by name, not just index
+    conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
     return conn
 
 
 def init_db():
     conn = get_connection()
-    conn.executescript("""
+    cur = conn.cursor()
+    cur.execute("""
     CREATE TABLE IF NOT EXISTS packages (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         name TEXT NOT NULL,
         requirement_text TEXT NOT NULL,
         test_cases_text TEXT NOT NULL,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS findings (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         package_id INTEGER NOT NULL REFERENCES packages(id),
         level TEXT NOT NULL,
         category TEXT NOT NULL,
@@ -36,11 +40,11 @@ def init_db():
         status TEXT NOT NULL DEFAULT 'pending',
         reference_valid INTEGER NOT NULL DEFAULT 1,
         validation_problems TEXT NOT NULL DEFAULT '[]',
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
-        CREATE TABLE IF NOT EXISTS clarification_questions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    CREATE TABLE IF NOT EXISTS clarification_questions (
+        id SERIAL PRIMARY KEY,
         package_id INTEGER NOT NULL REFERENCES packages(id),
         question TEXT NOT NULL,
         requirement_ref TEXT NOT NULL,
@@ -52,7 +56,7 @@ def init_db():
     );
 
     CREATE TABLE IF NOT EXISTS rtm_entries (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         package_id INTEGER NOT NULL REFERENCES packages(id),
         requirement_rule TEXT NOT NULL,
         test_ids TEXT NOT NULL,
@@ -60,14 +64,14 @@ def init_db():
     );
 
     CREATE TABLE IF NOT EXISTS review_decisions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         finding_id INTEGER NOT NULL REFERENCES findings(id),
         reviewer_id TEXT NOT NULL DEFAULT 'dev',
         decision TEXT NOT NULL,
         final_text TEXT,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
-
     """)
     conn.commit()
+    cur.close()
     conn.close()
