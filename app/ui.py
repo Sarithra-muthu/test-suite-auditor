@@ -1,5 +1,4 @@
-"""Streamlit page — paste or upload a package, audit it, review findings,
-reopen past reviews."""
+"""Streamlit page — login, then audit/review packages depending on role."""
 
 import csv
 import io
@@ -11,75 +10,146 @@ from loader import load_packages
 
 API = "http://127.0.0.1:8000"
 
+st.set_page_config(page_title="AI Test Suite Auditor", layout="wide")
+
+# ---------- Login ----------
+if "token" not in st.session_state:
+    st.session_state.token = None
+    st.session_state.user = None
+
+if st.session_state.token is None:
+    st.title("AI Test Suite Auditor")
+    st.subheader("Log in")
+    with st.form("login_form"):
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Log in", type="primary")
+        if submitted:
+            r = requests.post(f"{API}/login", json={"username": username, "password": password})
+            if r.status_code == 200:
+                st.session_state.token = r.json()["token"]
+                st.session_state.username = username
+                st.rerun()
+            else:
+                st.error("Invalid username or password.")
+    st.stop()
+
+AUTH = {"Authorization": f"Bearer {st.session_state.token}"}
+
+
+def api_get(path):
+    r = requests.get(f"{API}{path}", headers=AUTH)
+    if r.status_code == 401:
+        st.session_state.token = None
+        st.rerun()
+    return r
+
+
+def api_post(path, json_body=None):
+    r = requests.post(f"{API}{path}", headers=AUTH, json=json_body)
+    if r.status_code == 401:
+        st.session_state.token = None
+        st.rerun()
+    return r
+
+
+# figure out who we are and what role, by trying a role-gated call once
+_probe = api_get("/packages")
+is_logged_in = _probe.status_code == 200
+all_my_packages = _probe.json() if is_logged_in else []
+
+# username was stored at login; derive role by checking if audit succeeds
+# is not reliable, so store role explicitly from login response instead:
+# (simplify — ask backend who-am-i via the token on /packages call isn't
+# enough, so we just keep role client-side from login for display purposes
+# only; every actual permission check happens server-side regardless)
+role_guess = "coordinator" if st.session_state.get("username") == "coordinator" else "reviewer"
+
 st.title("AI Test Suite Auditor")
+top = st.columns([5, 1])
+top[0].caption(f"Logged in as **{st.session_state.username}**")
+if top[1].button("Log out"):
+    st.session_state.token = None
+    st.session_state.review = None
+    st.rerun()
 
 if "review" not in st.session_state:
     st.session_state.review = None
 
 with st.sidebar:
-    st.subheader("Upload your inputs")
-    uploaded = st.file_uploader("Requirements + test cases (.xlsx)", type=["xlsx"])
-    picked = None
+    if role_guess == "coordinator":
+        st.subheader("Upload your inputs")
+        uploaded = st.file_uploader("Requirements + test cases (.xlsx)", type=["xlsx"])
+        picked = None
 
-    if uploaded:
-        try:
-            packages = load_packages(uploaded)
-        except Exception as e:
-            st.error(f"Couldn't read that file: {e}")
-            packages = []
-        if packages:
-            names = [p["name"] for p in packages]
-            selected_name = st.selectbox("Pick a package", names)
-            picked = next(p for p in packages if p["name"] == selected_name)
-            st.caption(f"{picked['n_requirements']} requirements · {picked['n_tests']} test cases")
-            with st.expander("Preview source inputs"):
-                st.text(picked["requirement_text"])
-                st.text(picked["test_cases_text"])
+        if uploaded:
+            try:
+                packages = load_packages(uploaded)
+            except Exception as e:
+                st.error(f"Couldn't read that file: {e}")
+                packages = []
+            if packages:
+                names = [p["name"] for p in packages]
+                selected_name = st.selectbox("Pick a package", names)
+                picked = next(p for p in packages if p["name"] == selected_name)
+                st.caption(f"{picked['n_requirements']} requirements · {picked['n_tests']} test cases")
+                with st.expander("Preview source inputs"):
+                    st.text(picked["requirement_text"])
+                    st.text(picked["test_cases_text"])
 
-    name = st.text_input("Package name", value=picked["name"] if picked else "Discount")
+        name = st.text_input("Package name", value=picked["name"] if picked else "Discount")
 
-    with st.expander("Edit inputs (advanced)"):
-        requirement_text = st.text_area(
-            "Requirement text", value=picked["requirement_text"] if picked else "", height=150,
-        )
-        test_cases_text = st.text_area(
-            "Test cases", value=picked["test_cases_text"] if picked else "", height=100,
-        )
+        with st.expander("Edit inputs (advanced)"):
+            requirement_text = st.text_area(
+                "Requirement text", value=picked["requirement_text"] if picked else "", height=150,
+            )
+            test_cases_text = st.text_area(
+                "Test cases", value=picked["test_cases_text"] if picked else "", height=100,
+            )
 
-    if st.button("Run audit", type="primary", use_container_width=True):
-        if not requirement_text.strip():
-            st.error("Paste or upload a requirement first.")
-        else:
-            with st.spinner("Calling the auditor..."):
-                response = requests.post(
-                    f"{API}/audit-package",
-                    json={"name": name, "requirement_text": requirement_text, "test_cases_text": test_cases_text},
-                )
-            if response.status_code == 200:
-                st.session_state.review = response.json()
-                st.success(f"Saved as package #{st.session_state.review['package']['id']}")
+        if st.button("Run audit", type="primary", use_container_width=True):
+            if not requirement_text.strip():
+                st.error("Paste or upload a requirement first.")
             else:
-                st.error(f"Something went wrong: {response.text}")
+                with st.spinner("Calling the auditor..."):
+                    response = api_post(
+                        "/audit-package",
+                        {"name": name, "requirement_text": requirement_text, "test_cases_text": test_cases_text},
+                    )
+                if response.status_code == 200:
+                    st.session_state.review = response.json()
+                    st.success(f"Saved as package #{st.session_state.review['package']['id']}")
+                else:
+                    st.error(f"Something went wrong: {response.text}")
 
-    st.divider()
-    st.subheader("Reopen past review")
-    past_packages = requests.get(f"{API}/packages").json()
-    if past_packages:
+        st.divider()
+
+    st.subheader("Open a package")
+    past_packages = api_get("/packages").json()
+    if not past_packages:
+        st.info("No packages assigned to you yet." if role_guess != "coordinator" else "No packages yet — run an audit above.")
+    else:
         options = {f"#{p['id']} — {p['name']} ({p['created_at']})": p["id"] for p in past_packages}
-        choice = st.selectbox("Pick a saved package", ["—"] + list(options.keys()))
+        choice = st.selectbox("Pick a package", ["—"] + list(options.keys()))
         if choice != "—":
-            st.session_state.review = requests.get(f"{API}/package/{options[choice]}").json()
+            resp = api_get(f"/package/{options[choice]}")
+            if resp.status_code == 200:
+                st.session_state.review = resp.json()
+            else:
+                st.error(f"Couldn't open that package: {resp.text}")
 
 
 def reload_current_review():
     pid = st.session_state.review["package"]["id"]
-    st.session_state.review = requests.get(f"{API}/package/{pid}").json()
+    resp = api_get(f"/package/{pid}")
+    if resp.status_code == 200:
+        st.session_state.review = resp.json()
 
 
 review = st.session_state.review
 
 if review is None:
-    st.info("Upload a package and run an audit, or reopen a past one from the sidebar.")
+    st.info("Pick a package from the sidebar to get started.")
     st.stop()
 
 st.caption(f"{review['package']['name']}")
@@ -88,7 +158,7 @@ st.caption("Check the evidence. You decide what belongs in the final review.")
 
 total = len(review["findings"])
 reviewed = sum(1 for f in review["findings"] if f["decision"] != "pending")
-st.caption(f"{reviewed} of {total} findings reviewed")
+st.caption(f"{reviewed} of {total} findings reviewed (showing your own decisions)")
 
 tab_findings, tab_clarify, tab_rtm, tab_report = st.tabs(
     ["Findings", "Clarifications", "Coverage / RTM", "Report"]
@@ -99,22 +169,22 @@ with tab_findings:
         st.write("No findings.")
     for f in review["findings"]:
         with st.container(border=True):
-            top = st.columns([4, 1])
+            top_row = st.columns([4, 1])
             label = f"{f['category'].replace('_', ' ').title()}"
             if f["test_id"]:
                 label += f" · {f['test_id']}"
-            top[0].markdown(f"**{label}**")
+            top_row[0].markdown(f"**{label}**")
             status_color = {"accepted": "green", "rejected": "red", "pending": "gray"}[f["decision"]]
-            top[1].markdown(f":{status_color}[{f['decision'].title()}]")
+            top_row[1].markdown(f":{status_color}[{f['decision'].title()}]")
             if f.get("source") == "human":
-                st.caption("👤 Added by you")
+                st.caption("👤 Added by a reviewer")
 
             problems = json.loads(f["validation_problems"])
             if not f["reference_valid"]:
                 st.error(f"⚠️ Reference check FAILED — {'; '.join(problems)}")
 
             st.caption(f'Evidence: "{f["source_quote"]}"')
-            st.write(f["explanation"])  # always the original AI text, never overwritten
+            st.write(f["explanation"])
 
             if f["decision"] == "accepted" and f["final_text"] and f["final_text"] != f["explanation"]:
                 st.info(f"✏️ Your edited version (saved): {f['final_text']}")
@@ -135,7 +205,7 @@ with tab_findings:
             b1, b2, b3 = st.columns(3)
             if b1.button("✅ Accept", key=f"acc_{f['id']}", type=accept_type, use_container_width=True):
                 st.session_state[editing_key] = False
-                r = requests.post(f"{API}/finding/{f['id']}/decision", json={"decision": "accepted"})
+                r = api_post(f"/finding/{f['id']}/decision", {"decision": "accepted"})
                 if r.status_code == 200:
                     reload_current_review(); st.rerun()
                 else:
@@ -143,7 +213,7 @@ with tab_findings:
             if b2.button("❌ Reject", key=f"rej_{f['id']}", type=reject_type, use_container_width=True):
                 st.session_state[editing_key] = False
                 reason = st.session_state.get(reason_key, "")
-                r = requests.post(f"{API}/finding/{f['id']}/decision", json={"decision": "rejected", "final_text": reason or None})
+                r = api_post(f"/finding/{f['id']}/decision", {"decision": "rejected", "final_text": reason or None})
                 if r.status_code == 200:
                     reload_current_review(); st.rerun()
                 else:
@@ -162,7 +232,7 @@ with tab_findings:
                     )
                     e1, e2 = st.columns(2)
                     if e1.button("💾 Save edit & accept", key=f"saveedit_{f['id']}", type="primary", use_container_width=True):
-                        r = requests.post(f"{API}/finding/{f['id']}/decision", json={"decision": "accepted", "final_text": edit_text})
+                        r = api_post(f"/finding/{f['id']}/decision", {"decision": "accepted", "final_text": edit_text})
                         if r.status_code == 200:
                             st.session_state[editing_key] = False
                             reload_current_review(); st.rerun()
@@ -185,9 +255,9 @@ with tab_findings:
             explanation = st.text_area("Explanation", height=80)
             priority = st.selectbox("Priority", ["high", "medium", "low"])
             if st.form_submit_button("Add finding"):
-                r = requests.post(
-                    f"{API}/package/{review['package']['id']}/finding",
-                    json={
+                r = api_post(
+                    f"/package/{review['package']['id']}/finding",
+                    {
                         "level": level, "category": category, "test_id": test_id or None,
                         "source_quote": source_quote, "explanation": explanation, "priority": priority,
                     },
@@ -205,10 +275,10 @@ with tab_clarify:
             st.markdown(f"**{q['question']}**")
             st.caption(f"ref: {q['requirement_ref']} · status: {q['status']}")
             if q.get("source") == "human":
-                st.caption("👤 Added by you")
+                st.caption("👤 Added by a reviewer")
             answer = st.text_area("Answer", value=q["answer"] or "", key=f"ans_{q['id']}", height=60)
             if st.button("Save answer", key=f"save_ans_{q['id']}"):
-                r = requests.post(f"{API}/question/{q['id']}/answer", json={"answer": answer})
+                r = api_post(f"/question/{q['id']}/answer", {"answer": answer})
                 if r.status_code == 200:
                     reload_current_review()
                     st.toast("✅ Answer saved")
@@ -222,9 +292,9 @@ with tab_clarify:
             question = st.text_area("Question", height=80)
             requirement_ref = st.text_input("Requirement ref (e.g. D01-R03)")
             if st.form_submit_button("Add question"):
-                r = requests.post(
-                    f"{API}/package/{review['package']['id']}/question",
-                    json={"question": question, "requirement_ref": requirement_ref},
+                r = api_post(
+                    f"/package/{review['package']['id']}/question",
+                    {"question": question, "requirement_ref": requirement_ref},
                 )
                 if r.status_code == 200:
                     reload_current_review(); st.rerun()

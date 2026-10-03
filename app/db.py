@@ -62,6 +62,7 @@ def init_db():
     CREATE TABLE IF NOT EXISTS review_decisions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         finding_id INTEGER NOT NULL REFERENCES findings(id),
+        reviewer_id TEXT NOT NULL DEFAULT 'dev',
         decision TEXT NOT NULL,
         final_text TEXT,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP

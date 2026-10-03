@@ -57,7 +57,7 @@ def save_test_audit(package_id: int, result: TestAuditResult,
     conn.close()
 
 
-def load_package_review(package_id: int) -> dict:
+def load_package_review(package_id: int, requesting_user: dict) -> dict:
     conn = get_connection()
     package = conn.execute("SELECT * FROM packages WHERE id = ?", (package_id,)).fetchone()
     findings = conn.execute("SELECT * FROM findings WHERE package_id = ?", (package_id,)).fetchall()
@@ -69,10 +69,16 @@ def load_package_review(package_id: int) -> dict:
     findings_out = []
     for f in findings:
         f = dict(f)
-        latest = conn.execute(
-            "SELECT * FROM review_decisions WHERE finding_id = ? ORDER BY id DESC LIMIT 1",
-            (f["id"],),
-        ).fetchone()
+        if requesting_user["role"] == "coordinator":
+            latest = conn.execute(
+                "SELECT * FROM review_decisions WHERE finding_id = ? ORDER BY id DESC LIMIT 1",
+                (f["id"],),
+            ).fetchone()
+        else:
+            latest = conn.execute(
+                "SELECT * FROM review_decisions WHERE finding_id = ? AND reviewer_id = ? ORDER BY id DESC LIMIT 1",
+                (f["id"], requesting_user["reviewer_id"]),
+            ).fetchone()
         f["decision"] = latest["decision"] if latest else "pending"
         f["final_text"] = latest["final_text"] if latest else None
         findings_out.append(f)
@@ -103,11 +109,11 @@ def save_rtm(package_id: int, result: RTMResult) -> None:
     conn.commit()
     conn.close()
 
-def save_finding_decision(finding_id: int, decision: str, final_text: str | None = None) -> None:
+def save_finding_decision(finding_id: int, reviewer_id: str, decision: str, final_text: str | None = None) -> None:
     conn = get_connection()
     conn.execute(
-        "INSERT INTO review_decisions (finding_id, decision, final_text) VALUES (?, ?, ?)",
-        (finding_id, decision, final_text),
+        "INSERT INTO review_decisions (finding_id, reviewer_id, decision, final_text) VALUES (?, ?, ?, ?)",
+        (finding_id, reviewer_id, decision, final_text),
     )
     conn.commit()
     conn.close()
