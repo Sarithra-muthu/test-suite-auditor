@@ -8,7 +8,8 @@ import streamlit as st
 
 from loader import load_packages
 
-API = "http://127.0.0.1:8000"
+import os
+API = os.environ.get("API_URL", "http://127.0.0.1:8000")
 
 st.set_page_config(page_title="AI Test Suite Auditor", layout="wide")
 
