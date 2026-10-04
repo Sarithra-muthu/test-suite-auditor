@@ -11,7 +11,8 @@ def save_package(name: str, requirement_text: str, test_cases_text: str) -> int:
     conn = get_connection()
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO packages (name, requirement_text, test_cases_text) VALUES (%s, %s, %s) RETURNING id",
+        "INSERT INTO packages (name, requirement_text, test_cases_text, audit_status) "
+        "VALUES (%s, %s, %s, 'incomplete') RETURNING id",
         (name, requirement_text, test_cases_text),
     )
     package_id = cur.fetchone()["id"]
@@ -174,11 +175,23 @@ def load_package_review(package_id: int, requesting_user: dict) -> dict:
     }
 
 
-def list_packages() -> list[dict]:
+def list_packages(include_incomplete: bool = False) -> list[dict]:
     conn = get_connection()
     cur = conn.cursor()
-    cur.execute("SELECT id, name, created_at FROM packages ORDER BY created_at DESC")
+    where = "" if include_incomplete else "WHERE audit_status = 'complete'"
+    cur.execute(f"SELECT id, name, created_at, audit_status FROM packages {where} ORDER BY created_at DESC")
     rows = cur.fetchall()
     cur.close()
     conn.close()
     return [dict(r) for r in rows]
+
+def set_package_status(package_id: int, status: str, note: str | None = None) -> None:
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE packages SET audit_status = %s, audit_note = %s WHERE id = %s",
+        (status, note, package_id),
+    )
+    cur.close()
+    conn.commit()
+    conn.close()

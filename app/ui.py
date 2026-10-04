@@ -3,12 +3,12 @@
 import csv
 import io
 import json
+import os
 import requests
 import streamlit as st
 
 from loader import load_packages
 
-import os
 API = os.environ.get("API_URL", "http://127.0.0.1:8000")
 
 st.set_page_config(page_title="AI Test Suite Auditor", layout="wide")
@@ -54,16 +54,8 @@ def api_post(path, json_body=None):
     return r
 
 
-# figure out who we are and what role, by trying a role-gated call once
-_probe = api_get("/packages")
-is_logged_in = _probe.status_code == 200
-all_my_packages = _probe.json() if is_logged_in else []
-
-# username was stored at login; derive role by checking if audit succeeds
-# is not reliable, so store role explicitly from login response instead:
-# (simplify — ask backend who-am-i via the token on /packages call isn't
-# enough, so we just keep role client-side from login for display purposes
-# only; every actual permission check happens server-side regardless)
+# Used only to decide what to SHOW. Every real permission check
+# happens on the server, on every request.
 role_guess = "coordinator" if st.session_state.get("username") == "coordinator" else "reviewer"
 
 st.title("AI Test Suite Auditor")
@@ -121,16 +113,30 @@ with st.sidebar:
                     st.session_state.review = response.json()
                     st.success(f"Saved as package #{st.session_state.review['package']['id']}")
                 else:
-                    st.error(f"Something went wrong: {response.text}")
+                    try:
+                        msg = response.json().get("detail", response.text)
+                    except ValueError:
+                        msg = response.text
+                    st.error(f"Audit did not complete: {msg}")
 
         st.divider()
 
     st.subheader("Open a package")
-    past_packages = api_get("/packages").json()
+    pk_resp = api_get("/packages")
+    if pk_resp.status_code != 200:
+        st.error(f"Couldn't load packages: {pk_resp.text}")
+        past_packages = []
+    else:
+        past_packages = pk_resp.json()
+
     if not past_packages:
         st.info("No packages assigned to you yet." if role_guess != "coordinator" else "No packages yet — run an audit above.")
     else:
-        options = {f"#{p['id']} — {p['name']} ({p['created_at']})": p["id"] for p in past_packages}
+        options = {
+            f"#{p['id']} — {p['name']} ({p['created_at']})"
+            + ("" if p.get("audit_status", "complete") == "complete" else f" ⚠️ {p['audit_status'].upper()}"): p["id"]
+            for p in past_packages
+        }
         choice = st.selectbox("Pick a package", ["—"] + list(options.keys()))
         if choice != "—":
             resp = api_get(f"/package/{options[choice]}")
@@ -154,6 +160,13 @@ if review is None:
     st.stop()
 
 st.caption(f"{review['package']['name']}")
+
+if review["package"].get("audit_status", "complete") != "complete":
+    st.error(
+        f"⚠️ This audit is {review['package']['audit_status'].upper()}: "
+        f"{review['package'].get('audit_note') or ''}. Do not use it for review. Run the audit again."
+    )
+
 st.header("Review the auditor's findings")
 st.caption("Check the evidence. You decide what belongs in the final review.")
 

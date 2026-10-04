@@ -8,6 +8,7 @@ from app.engine import analyse_requirements, audit_test_cases, build_rtm
 from app.storage import (
     save_package, save_requirement_analysis, save_test_audit, save_rtm,
     save_finding_decision, save_question_answer, save_manual_finding, save_manual_question,
+    set_package_status,
     load_package_review, list_packages,
 )
 
@@ -51,37 +52,49 @@ def audit_package(req: AuditRequest, user: dict = Depends(get_current_user)):
     if user["role"] != "coordinator":
         raise HTTPException(status_code=403, detail="Only the coordinator can run a new audit")
 
-    package_id = save_package(req.name, req.requirement_text, req.test_cases_text)
+    package_id = save_package(req.name, req.requirement_text, req.test_cases_text)  # starts 'incomplete'
+    stage = "requirement analysis"
+    try:
+        req_result = analyse_requirements(req.requirement_text)
+        save_requirement_analysis(package_id, req_result, req.requirement_text, req.test_cases_text)
 
-    req_result = analyse_requirements(req.requirement_text)
-    save_requirement_analysis(package_id, req_result, req.requirement_text, req.test_cases_text)
+        if req.test_cases_text.strip():
+            stage = "test-case audit"
+            test_result = audit_test_cases(req.requirement_text, req.test_cases_text)
+            save_test_audit(package_id, test_result, req.requirement_text, req.test_cases_text)
 
-    test_findings = []
-    if req.test_cases_text.strip():
-        test_result = audit_test_cases(req.requirement_text, req.test_cases_text)
-        save_test_audit(package_id, test_result, req.requirement_text, req.test_cases_text)
-        test_findings = test_result.findings
+            stage = "RTM build"
+            rtm_result = build_rtm(req.requirement_text, req.test_cases_text, test_result.findings)
+            save_rtm(package_id, rtm_result)
+    except Exception as e:
+        status = "failed" if stage == "requirement analysis" else "partial"
+        set_package_status(package_id, status, f"{stage}: {e}")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Audit {status} at {stage} ({e}). Package #{package_id} is marked {status.upper()} "
+                   f"and hidden from reviewers. Run the audit again.",
+        )
 
-        rtm_result = build_rtm(req.requirement_text, req.test_cases_text, test_findings)
-        save_rtm(package_id, rtm_result)
-
+    set_package_status(package_id, "complete")
     return load_package_review(package_id, user)
 
 
 @app.get("/package/{package_id}")
 def get_package(package_id: int, user: dict = Depends(get_current_user)):
     review = load_package_review(package_id, user)
-    if not can_see_package(user, review["package"]["name"]):
-        raise HTTPException(status_code=403, detail="Not assigned to this package")
+    if review["package"] is None:
+        raise HTTPException(status_code=404, detail="Package not found")
+    if user["role"] != "coordinator":
+        if review["package"]["audit_status"] != "complete" or not can_see_package(user, review["package"]["name"]):
+            raise HTTPException(status_code=403, detail="Not assigned to this package")
     return review
 
 
 @app.get("/packages")
 def get_packages(user: dict = Depends(get_current_user)):
-    all_packages = list_packages()
     if user["role"] == "coordinator":
-        return all_packages
-    return [p for p in all_packages if can_see_package(user, p["name"])]
+        return list_packages(include_incomplete=True)
+    return [p for p in list_packages() if can_see_package(user, p["name"])]
 
 
 class DecisionRequest(BaseModel):

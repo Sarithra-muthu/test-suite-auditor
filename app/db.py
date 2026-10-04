@@ -72,6 +72,10 @@ def init_db():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     """)
+
+    cur.execute("ALTER TABLE packages ADD COLUMN IF NOT EXISTS audit_status TEXT NOT NULL DEFAULT 'complete'")
+    cur.execute("ALTER TABLE packages ADD COLUMN IF NOT EXISTS audit_note TEXT")
+
     conn.commit()
     cur.close()
     conn.close()
