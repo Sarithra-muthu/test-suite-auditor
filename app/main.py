@@ -3,16 +3,36 @@
 from fastapi import FastAPI, Depends, HTTPException, Header
 from pydantic import BaseModel
 
-from app.auth import verify_login, get_user_from_token, can_see_package
+from app.auth import verify_login, get_user_from_token, can_see_package, can_write_package, demo_audit_allowed
 from app.engine import analyse_requirements, audit_test_cases, build_rtm
 from app.storage import (
     save_package, save_requirement_analysis, save_test_audit, save_rtm,
     save_finding_decision, save_question_answer, save_manual_finding, save_manual_question,
     set_package_status,
     load_package_review, list_packages,
+    get_package_meta, package_id_of_finding, package_id_of_question,
 )
 
 app = FastAPI()
+
+# Size limits for the demo account, so one run cannot burn the model quota.
+DEMO_MAX_REQUIREMENT_CHARS = 6000
+DEMO_MAX_TESTS_CHARS = 10000
+
+
+def require_package_access(user: dict, package_id: int, write: bool = False) -> None:
+    """Server-side check for every endpoint that touches a package by id.
+    Reviewers and the demo account only reach packages they may see; held-out
+    packages are read-only for everyone when LOCK_EVAL_PACKAGES=1."""
+    meta = get_package_meta(package_id)
+    if meta is None:
+        raise HTTPException(status_code=404, detail="Package not found")
+    if user["role"] != "coordinator" and meta["audit_status"] != "complete":
+        raise HTTPException(status_code=403, detail="Not assigned to this package")
+    if not can_see_package(user, meta["name"]):
+        raise HTTPException(status_code=403, detail="Not assigned to this package")
+    if write and not can_write_package(user, meta["name"]):
+        raise HTTPException(status_code=403, detail="This package is locked and cannot be changed")
 
 
 def get_current_user(authorization: str = Header(default="")) -> dict:
@@ -49,10 +69,18 @@ class AuditRequest(BaseModel):
 
 @app.post("/audit-package")
 def audit_package(req: AuditRequest, user: dict = Depends(get_current_user)):
-    if user["role"] != "coordinator":
-        raise HTTPException(status_code=403, detail="Only the coordinator can run a new audit")
+    if user["role"] not in ("coordinator", "demo"):
+        raise HTTPException(status_code=403, detail="Only the coordinator or the demo account can run a new audit")
 
-    package_id = save_package(req.name, req.requirement_text, req.test_cases_text)  # starts 'incomplete'
+    name = req.name
+    if user["role"] == "demo":
+        if len(req.requirement_text) > DEMO_MAX_REQUIREMENT_CHARS or len(req.test_cases_text) > DEMO_MAX_TESTS_CHARS:
+            raise HTTPException(status_code=413, detail="Input too long for the demo account")
+        if not demo_audit_allowed():
+            raise HTTPException(status_code=429, detail="Daily demo audit limit reached. Please try again tomorrow.")
+        name = f"DEMO — {req.name}"
+
+    package_id = save_package(name, req.requirement_text, req.test_cases_text)  # starts 'incomplete'
     stage = "requirement analysis"
     try:
         req_result = analyse_requirements(req.requirement_text)
@@ -104,6 +132,10 @@ class DecisionRequest(BaseModel):
 
 @app.post("/finding/{finding_id}/decision")
 def decide_finding(finding_id: int, req: DecisionRequest, user: dict = Depends(get_current_user)):
+    pid = package_id_of_finding(finding_id)
+    if pid is None:
+        raise HTTPException(status_code=404, detail="Finding not found")
+    require_package_access(user, pid, write=True)
     save_finding_decision(finding_id, user["reviewer_id"], req.decision, req.final_text)
     return {"ok": True}
 
@@ -114,6 +146,10 @@ class AnswerRequest(BaseModel):
 
 @app.post("/question/{question_id}/answer")
 def answer_question(question_id: int, req: AnswerRequest, user: dict = Depends(get_current_user)):
+    pid = package_id_of_question(question_id)
+    if pid is None:
+        raise HTTPException(status_code=404, detail="Question not found")
+    require_package_access(user, pid, write=True)
     save_question_answer(question_id, req.answer)
     return {"ok": True}
 
@@ -129,6 +165,7 @@ class ManualFindingRequest(BaseModel):
 
 @app.post("/package/{package_id}/finding")
 def add_finding(package_id: int, req: ManualFindingRequest, user: dict = Depends(get_current_user)):
+    require_package_access(user, package_id, write=True)
     save_manual_finding(package_id, req.level, req.category, req.test_id, req.source_quote, req.explanation, req.priority)
     return {"ok": True}
 
@@ -140,5 +177,6 @@ class ManualQuestionRequest(BaseModel):
 
 @app.post("/package/{package_id}/question")
 def add_question(package_id: int, req: ManualQuestionRequest, user: dict = Depends(get_current_user)):
+    require_package_access(user, package_id, write=True)
     save_manual_question(package_id, req.question, req.requirement_ref)
     return {"ok": True}

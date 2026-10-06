@@ -195,3 +195,33 @@ def set_package_status(package_id: int, status: str, note: str | None = None) ->
     cur.close()
     conn.commit()
     conn.close()
+
+
+def get_package_meta(package_id: int) -> dict | None:
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT id, name, audit_status FROM packages WHERE id = %s", (package_id,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    return dict(row) if row else None
+
+
+def package_id_of_finding(finding_id: int) -> int | None:
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT package_id FROM findings WHERE id = %s", (finding_id,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    return row["package_id"] if row else None
+
+
+def package_id_of_question(question_id: int) -> int | None:
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT package_id FROM clarification_questions WHERE id = %s", (question_id,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    return row["package_id"] if row else None

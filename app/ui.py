@@ -57,6 +57,7 @@ def api_post(path, json_body=None):
 # Used only to decide what to SHOW. Every real permission check
 # happens on the server, on every request.
 role_guess = "coordinator" if st.session_state.get("username") == "coordinator" else "reviewer"
+can_audit = st.session_state.get("username") in ("coordinator", "demo")
 
 st.title("AI Test Suite Auditor")
 top = st.columns([5, 1])
@@ -70,8 +71,22 @@ if "review" not in st.session_state:
     st.session_state.review = None
 
 with st.sidebar:
-    if role_guess == "coordinator":
+    if can_audit:
         st.subheader("Upload your inputs")
+        if st.session_state.get("username") == "demo":
+            st.caption(
+                "Demo account: audits you run are saved as DEMO packages. "
+                "You can also open the D01 samples under 'Open a package'."
+            )
+        try:
+            with open("templates/Auditor_Input_Template.xlsx", "rb") as _sample:
+                st.download_button(
+                    "Download a sample input file", _sample.read(),
+                    file_name="Auditor_Input_Template.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+        except FileNotFoundError:
+            pass
         uploaded = st.file_uploader("Requirements + test cases (.xlsx)", type=["xlsx"])
         picked = None
 
@@ -130,7 +145,7 @@ with st.sidebar:
         past_packages = pk_resp.json()
 
     if not past_packages:
-        st.info("No packages assigned to you yet." if role_guess != "coordinator" else "No packages yet — run an audit above.")
+        st.info("No packages assigned to you yet." if not can_audit else "No packages yet — run an audit above.")
     else:
         options = {
             f"#{p['id']} — {p['name']} ({p['created_at']})"
