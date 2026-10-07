@@ -19,7 +19,7 @@ Both services run on Render's always-on Starter plan, so there is no idle wake-u
 
 Does a QA reviewer working **with** the auditor find more valid issues than the same reviewer working **alone**, and than the auditor working alone? The brief asks for a comparison of all three conditions on a real repeated task, with at least 30 runs. See [Evaluation design](#evaluation-design).
 
-Results: **TODO: add after scoring.**
+Results: in a pilot of ten held-out packages and two reviewers, reviewers working with the auditor found 69 to 76% of the 29 key issues, against 31% working alone. The auditor alone found 72 to 76%, and no condition found any of the seven boundary-value gaps. The reference key is still a draft and the sample is small. The range depends on whether the auditor's clarification questions count as findings; the case study has the detail.
 
 ---
 

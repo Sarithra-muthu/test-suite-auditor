@@ -20,12 +20,12 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 USERS = {
     "user1": {
         "password_hash": os.environ.get("AUTH_HASH_USER1", ""),
-        "reviewer_id": "user1",  # Aruna
+        "reviewer_id": "user1",  # reviewer 1
         "role": "reviewer",
     },
     "user2": {
         "password_hash": os.environ.get("AUTH_HASH_USER2", ""),
-        "reviewer_id": "user2",  # Kaarthik
+        "reviewer_id": "user2",  # reviewer 2
         "role": "reviewer",
     },
     "coordinator": {
@@ -46,8 +46,8 @@ USERS = {
 # Each reviewer's PAIRED-review package assignment, from the evaluation
 # allocation table. Human-only review happens outside the app entirely.
 PACKAGE_ASSIGNMENTS = {
-    "user1": ["P01", "P02", "P08", "P09", "P10"],  # Aruna
-    "user2": ["P03", "P04", "P05", "P06", "P07"],  # Kaarthik
+    "user1": ["P01", "P02", "P08", "P09", "P10"],  # reviewer 1
+    "user2": ["P03", "P04", "P05", "P06", "P07"],  # reviewer 2
 }
 
 # Demo account limits. Audits it runs are saved with a "DEMO — " name prefix;
