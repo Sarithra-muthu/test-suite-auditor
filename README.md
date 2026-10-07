@@ -171,4 +171,9 @@ templates/  Auditor_Input_Template.xlsx
 - **Self-reported timing** for the assisted reviews, which is less precise than instrumented timing.
 - **Generated data**: the packages were written for this study, not taken from a company's live work.
 - **Hosting**: two paid Render services (UI and API), in-memory login tokens that reset on a backend restart, four hard-coded accounts, and no password reset.
-- **Reviewers' source text**: the app shows evidence quotes but not the full requirement and test text, so reviewers worked from a reference workbook alongside it.
+
+---
+
+## License
+
+All rights reserved. The code is published for review and assessment only. See the `LICENSE` file.
